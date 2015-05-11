@@ -1,0 +1,128 @@
+---
+title: "Machine Learning Project"
+author: "Lawrence Goh"
+date: "Tuesday, 12 May 2015"
+output: html_document
+---
+
+This project entails processing a dataset to use a set of predictors (from sensors) to predict the required outcome which is the quality of the weightlift (variable: classe). This is done through the use of a huge training data set of about 19000 samples and 160 variables. The aim through pre-processing to get as best a fit of a machine learning model to fit the testing set. There is also a need to estimate the out of sample error. For the model used (Random Forest), the estimated error is taken as 1 - Kappa value. In this case, the out of sample error is 0.0026.
+
+<h3>Part 1: Reading in the data set and using Excel to search and replace with 0 all missing, NA and DIV/0 values </h3>
+```{r}
+library(caret); library(ggplot2)
+set.seed(1)
+# assume the file pml-training.csv is already downloaded to this current dir
+tr <- read.csv('pml-training.csv')
+
+# convert to numeric
+tr$kurtosis_roll_arm = as.numeric(tr$kurtosis_roll_arm)
+tr$kurtosis_roll_belt = as.numeric(tr$kurtosis_roll_belt)
+tr$kurtosis_picth_belt = as.numeric(tr$kurtosis_picth_belt)
+tr$kurtosis_yaw_belt = as.numeric(tr$kurtosis_yaw_belt)
+tr$skewness_roll_belt = as.numeric(tr$skewness_roll_belt)
+tr$skewness_roll_belt.1 = as.numeric(tr$skewness_roll_belt.1)
+tr$skewness_yaw_belt = as.numeric(tr$skewness_yaw_belt)
+tr$max_yaw_belt = as.numeric(tr$max_yaw_belt)
+tr$min_yaw_belt = as.numeric(tr$min_yaw_belt)
+tr$amplitude_yaw_belt = as.numeric(tr$amplitude_yaw_belt)
+tr$amplitude_yaw_dumbbell = as.numeric(tr$amplitude_yaw_dumbbell)
+tr$min_yaw_dumbbell = as.numeric(tr$min_yaw_dumbbell)
+tr$max_yaw_dumbbell = as.numeric(tr$max_yaw_dumbbell)
+tr$skewness_yaw_dumbbell = as.numeric(tr$skewness_yaw_dumbbell)
+tr$skewness_pitch_dumbbell = as.numeric(tr$skewness_pitch_dumbbell)
+tr$skewness_roll_dumbbell = as.numeric(tr$skewness_roll_dumbbell)
+tr$kurtosis_yaw_dumbbell = as.numeric(tr$kurtosis_yaw_dumbbell)
+tr$kurtosis_picth_dumbbell = as.numeric(tr$kurtosis_picth_dumbbell)
+tr$kurtosis_roll_dumbbell = as.numeric(tr$skewness_roll_dumbbell)
+tr$skewness_yaw_arm = as.numeric(tr$skewness_yaw_arm)
+tr$skewness_roll_arm = as.numeric(tr$skewness_roll_arm)
+tr$kurtosis_yaw_arm = as.numeric(tr$kurtosis_yaw_arm)
+tr$kurtosis_picth_arm = as.numeric(tr$kurtosis_picth_arm)
+tr$skewness_pitch_arm = as.numeric(tr$skewness_pitch_arm)
+tr$amplitude_yaw_forearm = as.numeric(tr$amplitude_yaw_forearm)
+tr$skewness_yaw_forearm = as.numeric(tr$skewness_yaw_forearm)
+tr$skewness_pitch_forearm = as.numeric(tr$skewness_pitch_forearm)
+tr$skewness_roll_forearm = as.numeric(tr$skewness_roll_forearm)
+tr$kurtosis_yaw_forearm = as.numeric(tr$kurtosis_yaw_forearm)
+tr$kurtosis_picth_forearm = as.numeric(tr$kurtosis_picth_forearm)
+tr$kurtosis_roll_forearm = as.numeric(tr$kurtosis_roll_forearm)
+tr$max_yaw_forearm = as.numeric(tr$max_yaw_forearm)
+tr$min_yaw_forearm = as.numeric(tr$min_yaw_forearm)
+
+# deriving the classes from the training set, to read in testing set
+classes <- sapply(tr, class)
+classes <- classes[-length(classes)]
+classes [['problem_id']]<-"numeric"
+te <- read.csv('pml-testing.csv',colClasses=classes, quote = "\"")
+
+```
+<h3>Part 2: Remove some predictors from the training and final test set </h3>
+```{r}
+# take out first 5 predictors since not meaningful to predict outcome (serial no, user_name, timestamps)
+tr <- tr[,-c(1:5)]
+te <- te[,-c(1:5)]
+
+# do this step to remove near Zero variance predictors
+nZV <- nearZeroVar(tr)
+tr <- tr[, -nZV]
+te <- te[, -nZV]
+
+# remove high correlated predictors, above 90%
+desCor <- cor(tr[,-54])
+highCor <- findCorrelation(desCor,0.90)
+tr <- tr[,-highCor]
+te <- te[,-highCor]
+
+# select column names from training set minus last one which is the outcome
+te <- te[,(names(tr)[-length(names(tr))])]
+
+# split test vs training, using 85% for training
+train.index <- createDataPartition (y = tr$classe, p = 0.85, list = F)
+training <- tr [ train.index, ]
+testing  <- tr [-train.index, ]
+
+```
+<h3>Part 3: Do Cross Validation using 3 folds and 2 repeats, do Machine Learning using Random forest model </h3>
+```{r}
+# configure with cross validation 3 K folds, repeated 2 times
+bootControl <- trainControl(method = "repeatedcv",number = 3,repeats = 2)
+
+# Fit Random Forest model with pre processing to scale and center with 200 trees
+modFit<-train(classe ~ ., data=training, method="rf", ntree=200,importance=T,do.trace = 10033, trControl = bootControl, preProcess = c("scale","center"),na.action=na.omit)
+
+#---------- Final Model ----------
+print(modFit$finalModel)
+
+#---------- Test of Accuracy and Out of Sample Estimate ----------
+pred<-predict(modFit,testing)
+print(confusionMatrix(pred,testing$classe))
+print(plot.train(modFit))
+
+```
+<h3>Part 4: Using the fitted model to predict the 20 test cases </h3>
+```{r}
+# Predict using the real testing data
+te.pred<-predict(modFit,te)
+print(te.pred)
+
+pml_write_files = function(x){
+        n = length(x)
+        for(i in 1:n){
+                filename = paste0("./","problem_id_",i,".txt")
+                write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+        }
+}
+
+pml_write_files(te.pred)
+
+```
+<h3>Useful Exploratory plots </h3>
+```{r}
+
+# histogram of testing data, shows most training data at which classe
+m<- ggplot(training,aes(x=classe))
+m+geom_histogram(aes(fill = ..count..))+scale_fill_gradient("Count", low = "green", high = "red")
+
+
+
+```
